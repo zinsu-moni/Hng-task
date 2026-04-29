@@ -1,16 +1,22 @@
 
+from app.config import load_environment
+
+load_environment()
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.api.auth import router as auth_router
 from app.api.profiles import router as profiles_router
-
-# Load environment variables from .env
-from dotenv import load_dotenv
-load_dotenv()
-
+from app.core.rate_limit import limiter, rate_limit_exception_handler
+from app.middleware import APIVersionMiddleware, RequestLoggingMiddleware
 
 app = FastAPI(title="Insighta Labs API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exception_handler)
 
 # CORS: always allow any origin.
 app.add_middleware(
@@ -20,8 +26,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(APIVersionMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(profiles_router)
+app.include_router(auth_router)
 
 
 @app.exception_handler(HTTPException)
@@ -50,4 +60,3 @@ def unhandled_exception_handler(request: Request, exc: Exception) -> JSONRespons
         status_code=500,
         content={"status": "error", "message": "Internal server error"},
     )
-

@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, pool
 
 from app.db.base import Base
 from app.db.session import get_database_url
+import app.models  # noqa: F401 - register SQLAlchemy models for autogenerate
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
@@ -56,4 +57,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-
