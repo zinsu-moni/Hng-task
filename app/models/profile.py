@@ -40,3 +40,13 @@ class Profile(Base):
         nullable=False,
     )
 
+    __table_args__ = (
+        sa.Index("idx_profiles_gender", "gender"),
+        sa.Index("idx_profiles_age_group", "age_group"),
+        sa.Index("idx_profiles_country_id", "country_id"),
+        sa.Index("idx_profiles_age", "age"),
+        sa.Index("idx_profiles_gender_probability", "gender_probability"),
+        sa.Index("idx_profiles_country_probability", "country_probability"),
+        sa.Index("idx_profiles_created_at", "created_at"),
+    )
+
