@@ -49,6 +49,11 @@ GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 WEB_CALLBACK_PATH = "/auth/github/callback"
+DEFAULT_FRONTEND_REDIRECT_URI = "http://127.0.0.1:5000/auth/callback"
+ALLOWED_FRONTEND_REDIRECTS = {
+    "http://127.0.0.1:5000/auth/callback",
+    "http://localhost:5000/auth/callback",
+}
 STATE_EXPIRE_MINUTES = 5
 
 
@@ -91,22 +96,31 @@ def _cli_oauth_config() -> dict[str, str]:
     }
 
 
-def _create_state() -> str:
+def _create_state(frontend_redirect_uri: str) -> str:
     now = utc_now()
     return jwt.encode(
-        {"type": "github_oauth_state", "iat": now, "exp": now + timedelta(minutes=STATE_EXPIRE_MINUTES)},
+        {
+            "type": "github_oauth_state",
+            "frontend_redirect_uri": frontend_redirect_uri,
+            "iat": now,
+            "exp": now + timedelta(minutes=STATE_EXPIRE_MINUTES),
+        },
         get_jwt_secret(),
         algorithm=ALGORITHM,
     )
 
 
-def _decode_state(state: str) -> None:
+def _decode_state(state: str) -> str:
     try:
         payload = jwt.decode(state, get_jwt_secret(), algorithms=[ALGORITHM])
     except JWTError as e:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid OAuth state") from e
     if payload.get("type") != "github_oauth_state":
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+    frontend_redirect_uri = payload.get("frontend_redirect_uri")
+    if frontend_redirect_uri not in ALLOWED_FRONTEND_REDIRECTS:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+    return frontend_redirect_uri
 
 
 async def _exchange_code_for_github_user(
@@ -203,20 +217,27 @@ def _upsert_user(db: Session, github_user: dict[str, Any]) -> User:
 
 @router.get("/github")
 @limiter.limit("10/minute")
-def github_login(request: Request) -> RedirectResponse:
+def github_login(
+    request: Request,
+    redirect_uri: str | None = Query(default=None),
+) -> RedirectResponse:
+    frontend_redirect_uri = redirect_uri or DEFAULT_FRONTEND_REDIRECT_URI
+    if frontend_redirect_uri not in ALLOWED_FRONTEND_REDIRECTS:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid redirect_uri")
+
     config = _oauth_config(request)
     params = urlencode(
         {
             "client_id": config["client_id"],
             "redirect_uri": config["redirect_uri"],
             "scope": "read:user user:email",
-            "state": _create_state(),
+            "state": _create_state(frontend_redirect_uri),
         }
     )
     return RedirectResponse(f"{GITHUB_AUTHORIZE_URL}?{params}")
 
 
-@router.get("/github/callback", response_model=TokenPair)
+@router.get("/github/callback")
 @limiter.limit("10/minute")
 async def github_callback(
     request: Request,
@@ -224,7 +245,7 @@ async def github_callback(
     state: str = Query(...),
     db: Session = Depends(get_db),
 ):
-    _decode_state(state)
+    frontend_redirect_uri = _decode_state(state)
     try:
         github_user = await _exchange_code_for_github_user(code, request)
     except httpx.HTTPError as e:
@@ -232,7 +253,14 @@ async def github_callback(
     user = _upsert_user(db, github_user)
     if not user.is_active:
         raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User is inactive")
-    return issue_token_pair(db, user)
+    token_pair = issue_token_pair(db, user)
+    query = urlencode(
+        {
+            "access_token": token_pair["access_token"],
+            "refresh_token": token_pair["refresh_token"],
+        }
+    )
+    return RedirectResponse(f"{frontend_redirect_uri}?{query}")
 
 
 @router.post("/cli/exchange", response_model=CliExchangeResponse)
