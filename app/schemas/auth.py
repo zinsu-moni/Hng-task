@@ -23,7 +23,7 @@ class CliExchangeRequest(BaseModel):
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class LogoutResponse(BaseModel):
@@ -45,8 +45,3 @@ class MeUserOut(BaseModel):
     avatar_url: str | None
     role: str
     created_at: datetime
-
-
-class MeResponse(BaseModel):
-    status: Literal["success"] = "success"
-    data: MeUserOut

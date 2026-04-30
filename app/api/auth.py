@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 import httpx
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from starlette.status import (
 from app.config import github_cli_redirect_uri, load_environment
 from app.core.auth import (
     ALGORITHM,
+    bearer_scheme,
     decode_token,
     get_current_user,
     get_jwt_secret,
@@ -36,7 +38,7 @@ from app.schemas.auth import (
     CliExchangeResponse,
     LogoutRequest,
     LogoutResponse,
-    MeResponse,
+    MeUserOut,
     RefreshRequest,
     TokenPair,
 )
@@ -310,31 +312,46 @@ def refresh_tokens(request: Request, payload: RefreshRequest, db: Session = Depe
 
 @router.post("/logout", response_model=LogoutResponse)
 @limiter.limit("10/minute")
-def logout(request: Request, payload: LogoutRequest, db: Session = Depends(get_db)):
+def logout(
+    request: Request,
+    payload: LogoutRequest,
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
     del request
-    decode_token(payload.refresh_token, "refresh")
-    token_hash = hash_token(payload.refresh_token)
-    stored_token = db.execute(
-        sa.select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-    ).scalar_one_or_none()
-    if stored_token is not None:
-        db.delete(stored_token)
+    should_commit = False
+
+    if payload.refresh_token:
+        decode_token(payload.refresh_token, "refresh")
+        token_hash = hash_token(payload.refresh_token)
+        stored_token = db.execute(
+            sa.select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        ).scalar_one_or_none()
+        if stored_token is not None:
+            db.delete(stored_token)
+            should_commit = True
+
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        access_payload = decode_token(credentials.credentials, "access")
+        user_id = access_payload.get("sub")
+        if user_id:
+            db.execute(sa.delete(RefreshToken).where(RefreshToken.user_id == user_id))
+            should_commit = True
+
+    if should_commit:
         db.commit()
     return {"status": "success", "message": "Logged out"}
 
 
-@router.get("/me", response_model=MeResponse)
+@router.get("/me", response_model=MeUserOut)
 @limiter.limit("10/minute")
 def me(request: Request, current_user: User = Depends(get_current_user)):
     del request
     return {
-        "status": "success",
-        "data": {
-            "id": str(current_user.id),
-            "username": current_user.username,
-            "email": current_user.email,
-            "avatar_url": current_user.avatar_url,
-            "role": current_user.role,
-            "created_at": current_user.created_at,
-        },
+        "id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "avatar_url": current_user.avatar_url,
+        "role": current_user.role,
+        "created_at": current_user.created_at,
     }
