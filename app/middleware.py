@@ -1,3 +1,5 @@
+import os
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -26,7 +28,12 @@ class APIVersionMiddleware(BaseHTTPMiddleware):
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, log_file: str = "logs.txt") -> None:
         super().__init__(app)
-        self.log_file = log_file
+        # Vercel's runtime does not guarantee a writable project filesystem.
+        # Use /tmp there and fail open if logging itself cannot be persisted.
+        if os.getenv("VERCEL"):
+            self.log_file = os.path.join(tempfile.gettempdir(), log_file)
+        else:
+            self.log_file = log_file
 
     async def dispatch(self, request: Request, call_next) -> Response:
         started = time.perf_counter()
@@ -42,5 +49,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 f"{request.method}\t{request.url.path}\t{status_code}\t"
                 f"{response_time_ms}\t{timestamp}\n"
             )
-            with open(self.log_file, "a", encoding="utf-8") as log:
-                log.write(line)
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as log:
+                    log.write(line)
+            except OSError:
+                pass
