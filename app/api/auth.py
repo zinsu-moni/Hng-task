@@ -61,6 +61,7 @@ ALLOWED_FRONTEND_REDIRECTS = {
     "https://instance-web.vercel.app/auth/callback",
 }
 STATE_EXPIRE_MINUTES = 5
+NO_FRONTEND_REDIRECT = "__backend_json__"
 
 
 def _env(name: str) -> str:
@@ -102,12 +103,12 @@ def _cli_oauth_config() -> dict[str, str]:
     }
 
 
-def _create_state(frontend_redirect_uri: str) -> str:
+def _create_state(frontend_redirect_uri: str | None) -> str:
     now = utc_now()
     return jwt.encode(
         {
             "type": "github_oauth_state",
-            "frontend_redirect_uri": frontend_redirect_uri,
+            "frontend_redirect_uri": frontend_redirect_uri or NO_FRONTEND_REDIRECT,
             "iat": now,
             "exp": now + timedelta(minutes=STATE_EXPIRE_MINUTES),
         },
@@ -116,7 +117,7 @@ def _create_state(frontend_redirect_uri: str) -> str:
     )
 
 
-def _decode_state(state: str) -> str:
+def _decode_state(state: str) -> str | None:
     try:
         payload = jwt.decode(state, get_jwt_secret(), algorithms=[ALGORITHM])
     except JWTError as e:
@@ -124,6 +125,8 @@ def _decode_state(state: str) -> str:
     if payload.get("type") != "github_oauth_state":
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
     frontend_redirect_uri = payload.get("frontend_redirect_uri")
+    if frontend_redirect_uri == NO_FRONTEND_REDIRECT:
+        return None
     if frontend_redirect_uri not in ALLOWED_FRONTEND_REDIRECTS:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
     return frontend_redirect_uri
@@ -227,8 +230,8 @@ def github_login(
     request: Request,
     redirect_uri: str | None = Query(default=None),
 ) -> RedirectResponse:
-    frontend_redirect_uri = redirect_uri or DEFAULT_FRONTEND_REDIRECT_URI
-    if frontend_redirect_uri not in ALLOWED_FRONTEND_REDIRECTS:
+    frontend_redirect_uri = redirect_uri
+    if frontend_redirect_uri is not None and frontend_redirect_uri not in ALLOWED_FRONTEND_REDIRECTS:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Invalid redirect_uri")
 
     config = _oauth_config(request)
@@ -260,6 +263,8 @@ async def github_callback(
     if not user.is_active:
         raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User is inactive")
     token_pair = issue_token_pair(db, user)
+    if frontend_redirect_uri is None:
+        return token_pair
     query = urlencode(
         {
             "access_token": token_pair["access_token"],
