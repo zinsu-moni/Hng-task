@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile application
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/insighta_labs
+          JWT_SECRET_KEY: test-secret
+          GITHUB_CLIENT_ID: test-client-id
+          GITHUB_CLIENT_SECRET: test-client-secret
+          GITHUB_CLI_CLIENT_ID: test-cli-client-id
+          GITHUB_CLI_CLIENT_SECRET: test-cli-client-secret
+        run: python -m compileall app api alembic

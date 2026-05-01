@@ -28,6 +28,7 @@ from app.core.rate_limit import limiter
 from app.db.deps import get_db
 from app.models.profile import Profile
 from app.models.user import User
+from app.schemas.auth import MeUserOut
 from app.utils.uuid7 import uuid7
 
 router = APIRouter(prefix="/api", tags=["profiles"])
@@ -704,3 +705,20 @@ def delete_profile(
     db.delete(profile)
     db.commit()
     return {"status": "success", "message": "Profile deleted"}
+
+
+@router.get("/users/me", response_model=MeUserOut)
+@limiter.limit("60/minute")
+def users_me_alias(
+    request: Request,
+    current_user: User = Depends(require_analyst),
+):
+    del request
+    return {
+        "id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "avatar_url": current_user.avatar_url,
+        "role": current_user.role,
+        "created_at": current_user.created_at,
+    }

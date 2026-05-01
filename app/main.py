@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.auth import router as auth_router
 from app.api.profiles import router as profiles_router
 from app.core.rate_limit import limiter, rate_limit_exception_handler
@@ -36,6 +37,14 @@ app.include_router(auth_router)
 
 @app.exception_handler(HTTPException)
 def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": str(exc.detail)},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"status": "error", "message": str(exc.detail)},
