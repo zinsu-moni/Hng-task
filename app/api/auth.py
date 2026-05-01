@@ -55,6 +55,7 @@ DEFAULT_FRONTEND_REDIRECT_URI = "http://127.0.0.1:5000/auth/callback"
 ALLOWED_FRONTEND_REDIRECTS = {
     "http://127.0.0.1:5000/auth/callback",
     "http://localhost:5000/auth/callback",
+    "https://instance-web.vercel.app/auth/callback",
 }
 STATE_EXPIRE_MINUTES = 5
 
