@@ -51,7 +51,10 @@ GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 WEB_CALLBACK_PATH = "/auth/github/callback"
-DEFAULT_FRONTEND_REDIRECT_URI = "http://127.0.0.1:5000/auth/callback"
+DEFAULT_FRONTEND_REDIRECT_URI = os.getenv(
+    "FRONTEND_CALLBACK_URL",
+    "https://instance-web.vercel.app/auth/callback",
+)
 ALLOWED_FRONTEND_REDIRECTS = {
     "http://127.0.0.1:5000/auth/callback",
     "http://localhost:5000/auth/callback",
